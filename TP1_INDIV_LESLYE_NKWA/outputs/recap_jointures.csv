@@ -1,0 +1,24 @@
+"Type de jointure","Base gauche","Base droite","Résultat
+(obs, vars)","Lignes conservées","Colonnes conservées"
+"left_join","individu
+(63 530, 49)","menage
+(7120, 38)","(63 530, 85)","Toutes celles de individu","Les deux bases réunies,
+clés en une fois"
+"right_join","individu
+(63 530, 49)","menage
+(7120, 38)","(63 530, 85)","Toutes celles de menage","Les deux bases réunies,
+clés en une fois"
+"inner_join","individu
+(63 530, 49)","menage
+(7120, 38)","(63 530, 85)","Intersection","Les deux bases réunies,
+clés en une fois"
+"full_join","individu
+(63 530, 49)","menage
+(7120, 38)","(63 530, 85)","Union","Les deux bases réunies,
+clés en une fois"
+"semi_join","individu
+(63 530, 49)","welfare
+(7120, 30)","(63 530, 49)","Individus avec ménage dans welfare","Individu uniquement"
+"anti_join","individu
+(63 530, 49)","welfare
+(7120, 30)","(0, 49)","Individus sans ménage dans welfare","Individu uniquement"

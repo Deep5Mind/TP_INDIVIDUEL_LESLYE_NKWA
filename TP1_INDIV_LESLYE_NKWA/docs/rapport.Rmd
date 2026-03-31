@@ -1,0 +1,142 @@
+---
+title: "Plan de sondage et jointures de bases"
+subtitle: "avec la base EHCVM 2021/2022 du Sénégal"
+author:
+  "Nkwa Tsamo Leslye Patricia"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+lang: fr
+output:
+  word_document:
+    reference_docx: reference.docx
+    toc: true
+    number_sections: true
+    fig_caption: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  dpi     = 180
+)
+
+library(tidyverse)
+library(haven)
+library(flextable)
+library(srvyr)
+library(here)
+
+menage    <- readRDS(here("data", "menage.rds"))
+individu  <- readRDS(here("data", "individu.rds"))
+welfare   <- readRDS(here("data", "welfare.rds"))
+conso     <- readRDS(here("data", "conso.rds"))
+tab_recap <- readRDS(here("data", "tab_recap.rds"))
+recap_df  <- readRDS(here("data", "recap_df.rds"))
+
+nb_vars_individu <- ncol(individu)
+nb_vars_menage   <- ncol(menage)
+nb_cles          <- 2
+obs_val <- readRDS(here("data", "obs_values.rds"))
+var_val <- readRDS(here("data", "var_values.rds"))
+
+recap_df <- tibble(
+  `Type de jointure` = c("left_join", "right_join", "inner_join",
+                         "full_join", "semi_join", "anti_join"),
+  Observations = obs_val,
+  Variables = var_val
+)
+
+nb_vars_left <- var_val[1]
+```
+
+# Comprenons nos données
+
+## La structure des bases choisies
+
+L’EHCVM 2021/2022 du Sénégal est composée de plusieurs fichiers. Dans ce TP, nous en avons sélectionné quatre. Ils sont reliés entre eux grâce aux identifiants communs que sont la grappe et le ménage. On a:
+
+- **`ehcvm_menage_SEN2021.dta`** : elle contient `r nrow(menage)` lignes et `r ncol(menage)` colonnes. Une ligne représente un ménage. Les variables clés sont  `grappe` (identifiant du District de Recensement), `menage` (numéro du ménage dans la grappe), `region`, `milieu`, `logem` (type de logement), `eauboi_sp` (source d'eau en saison des pluies), `elec_ac` (accès à l'électricité). C'est la base de référence pour les caractéristiques du logement et de l'équipement du ménage.
+
+- **`ehcvm_individu_SEN2021.dta`** : elle contient `r nrow(individu)` lignes et `r ncol(individu)` colonnes. Une ligne représente un individu membre d'un ménage, identifié par `numind`. Les variables clés sont `grappe`, `menage`, `numind`, `lien` (lien avec le chef de ménage), `sexe`, `age`, `educ_scol` (niveau d'éducation), `mal30j` (maladie dans les 30 derniers jours), `hhweight` (poids de sondage). C'est la base de référence pour les analyses démographiques et sociales.
+
+- **`ehcvm_welfare_SEN2021.dta`** : elle contient `r nrow(welfare)` lignes et `r ncol(welfare)` colonnes. Une ligne représente un ménage. Les variables clés sont `grappe`, `menage`, `pcexp` (dépense per capita), `dtot` (dépense totale du ménage), `hhsize` (taille du ménage), `hhweight`, `zref` (seuil de pauvreté de référence). C'est la base de bien-être et de mesure de la pauvreté.
+
+- **`ehcvm_conso_SEN2021.dta`** : elle contient `r nrow(conso)` lignes et `r ncol(conso)` colonnes. Une ligne représente un produit consommé par un ménage. Les variables clés sont `grappe`, `menage`, `codpr` (code produit), `modep` (mode d'acquisition), `depan` (dépense annualisée). C'est la base de consommation détaillée par produit, d'où le très grand nombre de lignes comme on peut le voir.
+
+## Le type de relation entre les bases choisies
+
+- La relation entre `individu` et `menage` est de type **1:N** car un ménage correspond à plusieurs individus, mais chaque individu appartient à un seul ménage. La clé unique de l'individu est le triplet `(grappe, menage, numind)`.
+
+- La relation entre `menage` et `welfare` est de type **1:1** car les deux bases contiennent exactement `r nrow(menage)` lignes, une par ménage. Elles décrivent le même ménage sous deux angles différents. 
+
+- La relation entre `menage` et `conso` est de type **1:N** car un ménage déclare plusieurs produits consommés, ce qui explique les `r nrow(conso)` lignes de `conso` pour `r nrow(menage)` ménages, soit environ `r round(nrow(conso)/nrow(menage))` produits par ménage en moyenne.
+
+
+# Le plan de sondage de l'EHCVM
+
+L'EHCVM 2021/2022 a été réalisée suivant un sondage stratifié à deux degrés, reprenant la même approche que l'édition 1. Tout d'abord, le territoire sénégalais est divisé en 14 régions × 2 milieux, donnant lieu à **28 strates**. La base de sondage est le RGPHAE 2013, qui recense 17 164 DR.
+
+**Au premier degré**, les DR (appelés grappes) sont tirés dans chaque strate. Un DR qui contient plus de ménages a plus de chances d'être tiré qu'un petit DR. Le tirage se fait en classant tous les DR de la strate selon leurs tailles cumulées, puis en se déplaçant à pas régulier le long de cette liste pour sélectionner les DR ( c'est la méthode des totaux cumulés à probabilités proportionnelles à la taille décrite en annexe 2 du Rapport EHCVM I, p. xvi).
+
+**Au second degré**, une phase de cartographie met d'abord à jour la liste des ménages dans chaque DR tiré, car la base de sondage date de 2013. Une fois cette liste actualisée, 12 ménages sont tirés par tirage systématique sans remise. Chaque ménage du DR a la même chance d'être choisi. Le nombre total de DR est 598 et cela résulte de la répartition de l'échantillon entre les 28 strates.
+En effet, chaque strate recoit un nombre de DR suffisant pour garantir des résultats fiables au niveau régional (par exemple 34 DR à Matam et Sédhiou, 86 DR à Dakar selon le tableau I-2 ,p. 20 du rapport II). Avec 12 ménages par DR, l'échantillon théorique est de 598 × 12 = **7 176 ménages**. 
+
+La collecte est répartie en deux vagues de 299 DR chacune. Elles partent de novembre 2021 à janvier 2022 puis avril à juillet 2022 pour capter les variations saisonnières de la consommation alimentaire. L'échantillon effectif après apurement est de **7 120 ménages**, soit une couverture de 99,2 %. 
+
+L'EHCVM-II comporte un **volet panel**. L'ANSD est retournée interroger les mêmes ménages que lors de l'édition 1. Un ménage est considéré comme panel si son chef de ménage de 2018/2019 ou son conjoint est encore présent. Avec ce critère, 6 127 ménages sur les 7 156 de l'édition 1 ont été retrouvés et réinterrogés, soit 86,1 %.
+
+Les **poids de sondage** (`hhweight`) sont précalculés par l'ANSD avec l'appui de la Banque mondiale et ne doivent pas être recalculés par l'analyste. La somme des poids dans `individu` est de `r format(round(sum(individu$hhweight, na.rm=TRUE)), big.mark=" ")` individus, représentant la population sénégalaise couverte par l'enquête. Le code R de définition du plan est en annexe 1.
+
+# Interprétation des jointures
+
+## Résultats
+
+```{r tab-recap}
+tab_recap
+```
+
+
+## Analyse
+
+- **left_join(individu, menage)** : On obtient `r recap_df$Observations[1]` observations × `r recap_df$Variables[1]` variables. Le nombre de lignes reste égal à celui de `individu` (`r nrow(individu)`) car chaque individu appartient à un ménage présent dans `menage`. Le nombre de variables passe de `r nb_vars_individu` à `r nb_vars_left` car on ajoute les `r nb_vars_menage` variables de `menage`, moins les `r nb_cles` clés partagées, soit `r nb_vars_menage - nb_cles` colonnes supplémentaires. 
+
+- **right_join(individu, menage)**: On obtient `r recap_df$Observations[2]` observations × `r recap_df$Variables[2]` variables. Cette fois la base `menage` sert de référence. Toutes ses `r nrow(menage)` lignes sont gardées, même si un ménage n'avait aucun individu correspondant. Pour chaque ménage, R rattache tous ses individus donnant `r recap_df$Observations[2]` lignes car aucun ménage n'est vide.
+
+- **inner_join(individu, menage)**: On obtient `r recap_df$Observations[3]` observations × `r recap_df$Variables[3]` variables, le même résultat que les deux jointures précédentes. Le fait qu'on retrouve exactement les mêmes `r recap_df$Observations[3]` lignes signifie qu'il n'y a aucun orphelin, c'est-à-dire aucun individu sans ménage correspondant et aucun ménage sans individu. C'est un indicateur de qualité des données de l'EHCVM.
+
+- **full_join(individu, menage)**: On obtient `r recap_df$Observations[4]` observations × `r recap_df$Variables[4]` variables, toujours le même résultat. Le full_join garde toutes les lignes des deux bases, y compris celles sans correspondance. Le résultat signifie que les deux bases se recouvrent entièrement. Dans une enquête de moindre qualité, le full_join ferait apparaître des lignes avec des NA, révélant des ménages sans individus ou des individus sans ménage.
+
+- **semi_join(individu, welfare)**: On obtient `r recap_df$Observations[5]` observations × `r recap_df$Variables[5]` variables. Toutes les lignes de `individu` sont conservées mais contrairement au left_join, aucune colonne de `welfare` n'est ajoutée. Cette jointure permet d'identifier les individus appartenant à un ménage présent dans `welfare`, sans modifier la structure de la base.
+
+- **anti_join(individu, welfare)**: On obtient `r recap_df$Observations[6]` observations. C'est l'inverse du semi_join. Il renvoie les individus dont le ménage est absent de `welfare`. Le fait qu'on obtienne 0 ligne confirme que tous les ménages de `individu` existent aussi dans `welfare`, donc une cohérence totale entre les deux bases.
+
+# Annexes
+
+## Annexe 1 : Le plan de sondage en R
+
+```{r plan-sondage, echo=TRUE, eval=FALSE}
+plan_sondage <- individu |>
+  filter(!is.na(hhweight)) |>
+  mutate(strate = paste(as.numeric(region), as.numeric(milieu), sep = "_")) |>
+  as_survey_design(
+    ids     = grappe,      # unité primaire de tirage (les DR)
+    strata  = strate,      # les 28 strates 
+    weights = hhweight,    # les poids 
+    nest    = TRUE         # grappes numérotées dans chaque strate
+  )
+```
+
+## Annexe 2 : Le code des jointures
+
+```{r codes-jointures, echo=TRUE, eval=FALSE}
+cle <- c("grappe", "menage")
+
+left_join_res  <- individu |> left_join(menage,  by = cle, suffix = c("_ind","_men"))
+right_join_res <- individu |> right_join(menage, by = cle, suffix = c("_ind","_men"))
+inner_join_res <- individu |> inner_join(menage, by = cle, suffix = c("_ind","_men"))
+full_join_res  <- individu |> full_join(menage,  by = cle, suffix = c("_ind","_men"))
+semi_join_res  <- individu |> semi_join(welfare, by = cle)
+anti_join_res  <- individu |> anti_join(welfare, by = cle)
+```
+
